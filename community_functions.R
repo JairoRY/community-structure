@@ -101,9 +101,18 @@ alg_list <- list(
   EdgeBetween = cluster_edge_betweenness
 )
 
-# Helper to run full analysis on a graph
-analyze_network <- function(g, net_name, gt_memb = NULL, n_iters = 1) {
-  # Significance Scoring
+analyze_network <- function(g, net_name, gt_memb = NULL, n_iters = 1, seed = 123) {
+  cat("Network:", net_name, "\n")
+  
+  pick_row <- function(df, pattern) {
+    idx <- grep(pattern, rownames(df), ignore.case = TRUE)
+    if (length(idx) == 0) stop("Could not find metric row matching: ", pattern)
+    if (length(idx) > 1) {
+      warning("Multiple rows matched '", pattern, "'. Using the first: ", rownames(df)[idx[1]])
+    }
+    idx[1]
+  }
+  
   base_scores <- evaluate_significance(g, alg_list = alg_list, gt_clustering = gt_memb)
   accum_scores <- as.matrix(base_scores)
   
@@ -113,82 +122,86 @@ analyze_network <- function(g, net_name, gt_memb = NULL, n_iters = 1) {
       accum_scores <- accum_scores + as.matrix(next_scores)
     }
   }
-  # Compute average and select desired metrics
+  
   avg_scores_matrix <- accum_scores / n_iters
   scores <- as.data.frame(avg_scores_matrix)
-  row_id   <- grep("Internal density", rownames(scores), ignore.case = TRUE)
-  row_exp  <- grep("Expansion", rownames(scores), ignore.case = TRUE)
-  row_cond <- grep("Conductance", rownames(scores), ignore.case = TRUE)
-  row_mod  <- grep("Modularity", rownames(scores), ignore.case = TRUE)
+  
+  row_id   <- pick_row(scores, "internal density")
+  row_exp  <- pick_row(scores, "expansion")
+  row_cond <- pick_row(scores, "conductance")
+  row_mod  <- pick_row(scores, "modularity")
   
   rows_to_use <- c(row_id, row_exp, row_cond, row_mod)
-  if(length(rows_to_use) > 0) {
-    print(scores[rows_to_use, , drop=FALSE])
-  } else {
-    print(scores)
+  print(scores[rows_to_use, , drop = FALSE])
+  
+  memberships_by_iter <- vector("list", n_iters)
+  
+  for (k in seq_len(n_iters)) {
+    set.seed(seed + k - 1)
+    memb_k <- list()
+    for (alg_name in names(alg_list)) {
+      comm <- suppressWarnings(alg_list[[alg_name]](g))
+      memb_k[[alg_name]] <- as.numeric(membership(comm))
+    }
+    memberships_by_iter[[k]] <- memb_k
   }
   
-  # Jaccard Analysis
-  # Determine Reference Clustering
   if (!is.null(gt_memb)) {
-    ref_memb <- gt_memb
+    ref_memb <- as.numeric(gt_memb)
     ref_name <- "GT"
   } else {
-    # CASE No Ground Truth
-    if (length(rows_to_use) < 4) {
-      stop("Error: Could not find all 4 required metrics (Internal density, Expansion, Conductance, Modularity) in the output rows.")
-    }
-    
-    # Extract numeric vectors for the algorithms
     algs_in_scores <- intersect(names(alg_list), colnames(scores))
-    subset_scores <- scores[, algs_in_scores, drop=FALSE]
+    subset_scores <- scores[, algs_in_scores, drop = FALSE]
     
-    # Extract values for the 4 metrics
     vals_id   <- as.numeric(subset_scores[row_id, ])
     vals_exp  <- as.numeric(subset_scores[row_exp, ])
     vals_cond <- as.numeric(subset_scores[row_cond, ])
     vals_mod  <- as.numeric(subset_scores[row_mod, ])
     
-    # High is Best: Internal Density, Modularity -> Rank descending (-)
-    rank_id  <- rank(-vals_id)
-    rank_mod <- rank(-vals_mod)
+    rank_id   <- rank(-vals_id,   ties.method = "min")
+    rank_mod  <- rank(-vals_mod,  ties.method = "min")
+    rank_exp  <- rank(vals_exp,   ties.method = "min")
+    rank_cond <- rank(vals_cond,  ties.method = "min")
     
-    # Low is Best: Expansion, Conductance -> Rank ascending
-    rank_exp  <- rank(vals_exp)
-    rank_cond <- rank(vals_cond)
-    
-    # Compute Average Rank for each Algorithm
     rank_matrix <- rbind(rank_id, rank_exp, rank_cond, rank_mod)
     mean_ranks <- colMeans(rank_matrix)
     names(mean_ranks) <- algs_in_scores
     
-    # Find Best Algorithm (Lowest Mean Rank)
     best_alg_name <- names(which.min(mean_ranks))
     cat("   Average Ranks (Lower is better):\n")
     print(mean_ranks)
-    cat(paste0("-> Selected Reference: ", best_alg_name, "\n"))
+    cat("-> Selected Reference:", best_alg_name, "\n")
     
-    # Generate the reference membership
-    ref_alg <- alg_list[[best_alg_name]](g)
-    ref_memb <- as.numeric(membership(ref_alg))
+    mods <- numeric(n_iters)
+    for (k in seq_len(n_iters)) {
+      mods[k] <- modularity(g, memberships_by_iter[[k]][[best_alg_name]])
+    }
+    best_k <- which.max(mods)
+    ref_memb <- memberships_by_iter[[best_k]][[best_alg_name]]
     ref_name <- best_alg_name
+    cat("-> Using iteration", best_k, "as reference (max modularity =", sprintf("%.4f", mods[best_k]), ")\n")
   }
   
-  # Compute Jaccard for all algorithms vs Reference
+  compare_k <- if (!is.null(gt_memb)) 1 else best_k
+  
   for (alg_name in names(alg_list)) {
-    comm <- alg_list[[alg_name]](g)
-    alg_memb <- as.numeric(membership(comm))
+    alg_memb <- memberships_by_iter[[compare_k]][[alg_name]]
     
     JS <- jaccard_sim(ref_memb, alg_memb)
     MC <- match_clusters(JS, name1 = ref_name, name2 = alg_name)
     global_sim <- Wmean(ref_memb, MC)
     
-    # Print results
     cat(paste0("\n", ref_name, " vs ", alg_name, "\n"))
     cat(sprintf("Global Jaccard: %.4f\n", global_sim))
     cat("Local Matches:\n")
     print(MC)
   }
+  
+  invisible(list(
+    scores = scores,
+    reference = list(name = ref_name, membership = ref_memb),
+    memberships_by_iter = memberships_by_iter
+  ))
 }
 
 # RUNNING THE ANALYSIS ON THE 4 NETWORKS
@@ -204,7 +217,7 @@ analyze_network(karate, "Karate Club", gt_memb = gt_karate)
 B_pref <- matrix(0.1, 4, 4)
 diag(B_pref) <- 0.9
 g_synth <- barabasi_albert_blocks(
-  m = 2, 
+  m = 4, 
   p = rep(0.25, 4), 
   B = B_pref, 
   t_max = 200, 
@@ -231,3 +244,4 @@ E(g_faculty_undirected)$weight <- 1
 g_faculty <- simplify(g_faculty_undirected, remove.multiple = TRUE, remove.loops = TRUE, 
                       edge.attr.comb = list(weight = "sum", "ignore"))
 analyze_network(g_faculty, "UK Faculty", n_iters = 10)
+
