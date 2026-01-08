@@ -1,27 +1,23 @@
 # Community Structure Analysis
 
-This repository contains R scripts for detecting and evaluating community structures within complex networks. This project was developed as part of the Complex and Social Networks (CSN) course within the Master in Innovation and Research in Informatics (MIRI) at the Universitat Politècnica de Catalunya (UPC - BarcelonaTech).
+This repository contains R code for detecting and analyzing community structures within complex networks. The project was developed as part of the Complex and Social Networks (CSN) course within the Master in Innovation and Research in Informatics (MIRI) at the Universitat Politècnica de Catalunya (UPC).
 
-The project focuses on the implementation and comparison of various community detection algorithms to identify cohesive subgroups within larger network architectures, assessing their performance through modularity and other structural metrics.
+The analysis focuses on identifying cohesive groups of nodes that are more densely connected to each other than to the rest of the network, using various algorithmic approaches and evaluation metrics.
 
 ## Project Structure
 
-The project is organized into modular scripts that handle data ingestion, algorithm execution, and comparative analysis:
+The project currently consists of the following core component:
 
-* **dataLoader.R**: Handles the import of network data from formats such as edge lists or adjacency matrices and converts them into igraph objects.
-* **communityDetection.R**: Contains the implementation of several community detection algorithms, including Louvain, Walktrap, and Girvan-Newman.
-* **evaluationMetrics.R**: Calculates statistical measures to evaluate the quality of the detected communities, such as modularity, conductance, and normalized mutual information (NMI).
-* **visualization.R**: Generates network plots where nodes are colored by their assigned community and produces dendrograms for hierarchical methods.
-* **comparison_analysis.R**: Compares the results of different algorithms on the same dataset to determine which method best captures the underlying structure.
+* **community_functions.R**: A collection of functions designed to facilitate community detection and evaluate the quality of network partitions. This includes implementations or wrappers for calculating modularity, conductance, and other structural properties.
 
 ## Getting Started
 
 ### Prerequisites
 
-The analysis requires R (version 4.0 or higher) and the following network analysis and visualization packages:
+To use these functions, you need to have R installed along with the igraph library, which is the primary tool for network analysis in this project:
 
 ```r
-install.packages(c("igraph", "ggplot2", "RColorBrewer", "networkD3"))
+install.packages("igraph")
 
 ```
 
@@ -35,13 +31,11 @@ cd MIRI-CSN-Community-Structure
 ```
 
 
-2. **Run the analysis:**
-Scripts should be executed in sequence to process the network and generate the results:
+2. **Source the functions:**
+You can load the provided functions into your R environment to use them on your network datasets:
 ```r
-source("dataLoader.R")
-source("communityDetection.R")
-source("evaluationMetrics.R")
-source("visualization.R")
+library(igraph)
+source("community_functions.R")
 
 ```
 
@@ -49,11 +43,9 @@ source("visualization.R")
 
 ## Algorithms Evaluated
 
-The project explores different approaches to community detection:
+The analysis typically involves comparing different community detection strategies to understand their strengths and weaknesses in various network topologies:
 
-* **Louvain Method**: A multi-level optimization of modularity.
-* **Walktrap Algorithm**: Identifies communities via random walks, based on the idea that walks tend to stay within highly connected subgroups.
-* **Girvan-Newman**: A divisive method that iteratively removes edges with the highest edge betweenness.
-* **Label Propagation**: A fast algorithm where nodes adopt the majority label of their neighbors.
-
-Would you like me to create a similar README for any other repository in this series?
+* **Louvain Method**: A heuristic method based on modularity optimization that is highly efficient for large networks.
+* **Walktrap Algorithm**: Detects communities by using random walks, under the premise that short random walks tend to stay within the same community.
+* **Fast-Greedy**: A bottom-up hierarchical approach that merges communities to maximize modularity at each step.
+* **Edge Betweenness (Girvan-Newman)**: A divisive algorithm that removes edges with the highest betweenness score to reveal the underlying community structure.
